@@ -1,0 +1,638 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SentryAnnotate</title>
+  <style>
+    /* ── Reset & Base ─────────────────────────────────────── */
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    html, body {
+      width: 100%; height: 100%;
+      overflow: hidden;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      user-select: none;
+    }
+
+    /* ── Light Theme (default) ────────────────────────────── */
+    .sa-overlay {
+      position: fixed; top: 0; left: 0;
+      width: 100%; height: 100%;
+      display: flex; flex-direction: column;
+      background: rgba(255, 255, 255, 0.0);
+      z-index: 9999;
+    }
+
+    .sa-toolbar {
+      display: flex; align-items: center; gap: 4px;
+      padding: 6px 10px;
+      background: rgba(255, 255, 255, 0.92);
+      backdrop-filter: blur(8px);
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+      z-index: 10;
+      flex-shrink: 0;
+    }
+
+    .sa-tool, .sa-action {
+      display: flex; align-items: center; justify-content: center;
+      width: 34px; height: 34px;
+      border: 1px solid transparent;
+      border-radius: 6px;
+      background: transparent;
+      color: #333;
+      cursor: pointer;
+      transition: background 0.15s, border-color 0.15s, color 0.15s;
+    }
+
+    .sa-tool:hover, .sa-action:hover {
+      background: rgba(0, 0, 0, 0.06);
+      border-color: rgba(0, 0, 0, 0.15);
+    }
+
+    .sa-tool.active {
+      background: rgba(59, 130, 246, 0.12);
+      border-color: rgba(59, 130, 246, 0.4);
+      color: #2563eb;
+    }
+
+    .sa-tool svg, .sa-action svg {
+      width: 18px; height: 18px;
+    }
+
+    .sa-separator {
+      width: 1px; height: 24px;
+      background: rgba(0, 0, 0, 0.12);
+      margin: 0 4px;
+    }
+
+    .sa-action.sa-export {
+      background: rgba(34, 197, 94, 0.1);
+      color: #16a34a;
+    }
+
+    .sa-action.sa-export:hover {
+      background: rgba(34, 197, 94, 0.2);
+    }
+
+    .sa-canvas-container {
+      flex: 1; position: relative; overflow: hidden;
+    }
+
+    .sa-canvas {
+      position: absolute; top: 0; left: 0;
+      width: 100%; height: 100%;
+    }
+
+    /* ── Dark Theme ───────────────────────────────────────── */
+    .sa-overlay.dark .sa-toolbar {
+      background: rgba(30, 30, 30, 0.92);
+      border-bottom-color: rgba(255, 255, 255, 0.1);
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+
+    .sa-overlay.dark .sa-tool,
+    .sa-overlay.dark .sa-action {
+      color: #ddd;
+    }
+
+    .sa-overlay.dark .sa-tool:hover,
+    .sa-overlay.dark .sa-action:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: rgba(255, 255, 255, 0.15);
+    }
+
+    .sa-overlay.dark .sa-tool.active {
+      background: rgba(96, 165, 250, 0.15);
+      border-color: rgba(96, 165, 250, 0.5);
+      color: #93c5fd;
+    }
+
+    .sa-overlay.dark .sa-separator {
+      background: rgba(255, 255, 255, 0.12);
+    }
+
+    .sa-overlay.dark .sa-action.sa-export {
+      background: rgba(74, 222, 128, 0.12);
+      color: #4ade80;
+    }
+
+    .sa-overlay.dark .sa-action.sa-export:hover {
+      background: rgba(74, 222, 128, 0.22);
+    }
+
+    /* ── Tooltip ──────────────────────────────────────────── */
+    .sa-tool[title], .sa-action[title] {
+      position: relative;
+    }
+
+    .sa-tool[title]:hover::after,
+    .sa-action[title]:hover::after {
+      content: attr(title);
+      position: absolute;
+      bottom: -30px; left: 50%;
+      transform: translateX(-50%);
+      padding: 3px 8px;
+      background: #222;
+      color: #fff;
+      font-size: 11px;
+      border-radius: 4px;
+      white-space: nowrap;
+      z-index: 100;
+      pointer-events: none;
+    }
+
+    /* ── Crosshair cursor for drawing tools ───────────────── */
+    .sa-canvas.crosshair { cursor: crosshair; }
+    .sa-canvas.select-cursor { cursor: default; }
+  </style>
+</head>
+<body>
+  <div class="sa-overlay" id="sa-overlay">
+    <div class="sa-toolbar" id="sa-toolbar">
+      <!-- Tools -->
+      <button class="sa-tool active" data-tool="select" title="Select (V)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/>
+        </svg>
+      </button>
+      <button class="sa-tool" data-tool="box" title="Rectangle (R)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2"/>
+        </svg>
+      </button>
+      <button class="sa-tool" data-tool="arrow" title="Arrow (A)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/>
+        </svg>
+      </button>
+      <button class="sa-tool" data-tool="blur" title="Blur (B)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><path d="M12 8v8M8 12h8"/>
+        </svg>
+      </button>
+      <button class="sa-tool" data-tool="text" title="Text (T)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/>
+        </svg>
+      </button>
+      <button class="sa-tool" data-tool="step" title="Numbered Step (S)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="10"/><text x="12" y="16" text-anchor="middle" fill="currentColor" stroke="none" font-size="12">1</text>
+        </svg>
+      </button>
+      <div class="sa-separator"></div>
+      <!-- Actions -->
+      <button class="sa-action" id="sa-undo" title="Undo (Ctrl+Z)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/>
+        </svg>
+      </button>
+      <button class="sa-action" id="sa-redo" title="Redo (Ctrl+Shift+Z)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10"/>
+        </svg>
+      </button>
+      <button class="sa-action" id="sa-clear" title="Clear All">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
+        </svg>
+      </button>
+      <div class="sa-separator"></div>
+      <button class="sa-action sa-export" id="sa-copy" title="Copy to Clipboard (Ctrl+C)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+        </svg>
+      </button>
+      <button class="sa-action sa-export" id="sa-save" title="Save as PNG (Ctrl+S)">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/>
+        </svg>
+      </button>
+      <div class="sa-separator"></div>
+      <button class="sa-action" id="sa-theme" title="Toggle Dark/Light Mode">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+          <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+          <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+        </svg>
+      </button>
+    </div>
+    <div class="sa-canvas-container">
+      <canvas class="sa-canvas" id="sa-canvas"></canvas>
+    </div>
+  </div>
+
+  <script>
+    // ──────────────────────────────────────────────────────────
+    // AnnotationUI – runs in the Electron renderer process
+    // ──────────────────────────────────────────────────────────
+    (function () {
+      'use strict';
+
+      // ── State ──────────────────────────────────────────────
+      let tool = 'select';
+      let isDrawing = false;
+      let startX = 0, startY = 0;
+      let annotations = [];
+      let stepCounter = 0;
+      let darkMode = false;
+      let backgroundImg = null;
+
+      // ── DOM refs ───────────────────────────────────────────
+      const overlay = document.getElementById('sa-overlay');
+      const toolbar = document.getElementById('sa-toolbar');
+      const canvas = document.getElementById('sa-canvas');
+      const ctx = canvas.getContext('2d');
+
+      // ── Resize canvas to window ────────────────────────────
+      function resizeCanvas() {
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        redraw();
+      }
+      window.addEventListener('resize', resizeCanvas);
+      resizeCanvas();
+
+      // ── Tool buttons ───────────────────────────────────────
+      overlay.querySelectorAll('.sa-tool').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          setTool(btn.getAttribute('data-tool'));
+        });
+      });
+
+      // ── Action buttons ─────────────────────────────────────
+      document.getElementById('sa-undo').addEventListener('click', function () { onUndo(); });
+      document.getElementById('sa-redo').addEventListener('click', function () { onRedo(); });
+      document.getElementById('sa-clear').addEventListener('click', function () { onClear(); });
+      document.getElementById('sa-copy').addEventListener('click', function () { handleCopy(); });
+      document.getElementById('sa-save').addEventListener('click', function () { handleSave(); });
+      document.getElementById('sa-theme').addEventListener('click', function () { toggleDarkMode(); });
+
+      // ── Mouse events ───────────────────────────────────────
+      canvas.addEventListener('mousedown', onMouseDown);
+      canvas.addEventListener('mousemove', onMouseMove);
+      canvas.addEventListener('mouseup', onMouseUp);
+      canvas.addEventListener('mouseleave', onMouseUp);
+
+      // ── Keyboard shortcuts ─────────────────────────────────
+      document.addEventListener('keydown', onKeyDown);
+
+      // ──────────────────────────────────────────────────────
+      // Tool management
+      // ──────────────────────────────────────────────────────
+      function setTool(t) {
+        tool = t;
+        updateToolbar();
+        updateCursor();
+      }
+
+      function updateToolbar() {
+        overlay.querySelectorAll('.sa-tool').forEach(function (btn) {
+          btn.classList.toggle('active', btn.getAttribute('data-tool') === tool);
+        });
+      }
+
+      function updateCursor() {
+        canvas.classList.remove('crosshair', 'select-cursor');
+        if (tool === 'select' || tool === 'pan') {
+          canvas.classList.add('select-cursor');
+        } else {
+          canvas.classList.add('crosshair');
+        }
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Mouse handlers
+      // ──────────────────────────────────────────────────────
+      function getCanvasPoint(e) {
+        return { x: e.clientX, y: e.clientY };
+      }
+
+      function onMouseDown(e) {
+        if (tool === 'select' || tool === 'pan') return;
+        var pt = getCanvasPoint(e);
+        isDrawing = true;
+        startX = pt.x;
+        startY = pt.y;
+
+        if (tool === 'text') {
+          var text = prompt('Enter text:');
+          if (text) {
+            addAnnotation({ type: 'text', x: pt.x, y: pt.y, text: text, color: '#ffffff', fontSize: 16 });
+          }
+          isDrawing = false;
+          return;
+        }
+
+        if (tool === 'step') {
+          stepCounter++;
+          addAnnotation({ type: 'step', x: pt.x, y: pt.y, number: stepCounter, color: '#ffffff', fontSize: 16 });
+          isDrawing = false;
+          return;
+        }
+
+        if (tool === 'blur') {
+          addAnnotation({ type: 'blur', x: pt.x, y: pt.y, width: 100, height: 100, radius: 8 });
+          isDrawing = false;
+          return;
+        }
+      }
+
+      function onMouseMove(e) {
+        if (!isDrawing) return;
+        // Preview drawing would go here
+      }
+
+      function onMouseUp(e) {
+        if (!isDrawing) return;
+        isDrawing = false;
+        var pt = getCanvasPoint(e);
+
+        if (tool === 'box') {
+          var minX = Math.min(startX, pt.x);
+          var minY = Math.min(startY, pt.y);
+          var width = Math.abs(pt.x - startX);
+          var height = Math.abs(pt.y - startY);
+          if (width > 5 && height > 5) {
+            addAnnotation({ type: 'box', x: minX, y: minY, width: width, height: height, color: '#ff0000', lineWidth: 2 });
+          }
+        }
+
+        if (tool === 'arrow') {
+          var dx = pt.x - startX;
+          var dy = pt.y - startY;
+          if (Math.sqrt(dx * dx + dy * dy) > 10) {
+            addAnnotation({
+              type: 'arrow',
+              from: { x: startX, y: startY },
+              to: { x: pt.x, y: pt.y },
+              color: '#ff0000',
+              lineWidth: 2
+            });
+          }
+        }
+
+        redraw();
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Keyboard shortcuts
+      // ──────────────────────────────────────────────────────
+      function onKeyDown(e) {
+        var ctrl = e.ctrlKey || e.metaKey;
+
+        // Ctrl+C – copy
+        if (ctrl && e.key === 'c' && !e.shiftKey) {
+          e.preventDefault();
+          handleCopy();
+          return;
+        }
+
+        // Ctrl+S – save
+        if (ctrl && e.key === 's') {
+          e.preventDefault();
+          handleSave();
+          return;
+        }
+
+        // Ctrl+Z – undo
+        if (ctrl && e.key === 'z' && !e.shiftKey) {
+          e.preventDefault();
+          onUndo();
+          return;
+        }
+
+        // Ctrl+Shift+Z – redo
+        if (ctrl && e.key === 'Z') {
+          e.preventDefault();
+          onRedo();
+          return;
+        }
+
+        // Esc – deselect
+        if (e.key === 'Escape') {
+          setTool('select');
+          return;
+        }
+
+        // Single-letter shortcuts (only when not in an input)
+        if (!ctrl && !e.altKey && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+          switch (e.key.toLowerCase()) {
+            case 'v': setTool('select'); break;
+            case 'r': setTool('box'); break;
+            case 'a': setTool('arrow'); break;
+            case 'b': setTool('blur'); break;
+            case 't': setTool('text'); break;
+            case 's': setTool('step'); break;
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Actions
+      // ──────────────────────────────────────────────────────
+      function onUndo() {
+        // Notify main process via IPC
+        if (window.electronAPI && window.electronAPI.undo) {
+          window.electronAPI.undo();
+        }
+        redraw();
+      }
+
+      function onRedo() {
+        if (window.electronAPI && window.electronAPI.redo) {
+          window.electronAPI.redo();
+        }
+        redraw();
+      }
+
+      function onClear() {
+        annotations = [];
+        stepCounter = 0;
+        redraw();
+        if (window.electronAPI && window.electronAPI.clearAnnotations) {
+          window.electronAPI.clearAnnotations();
+        }
+      }
+
+      function handleCopy() {
+        var dataUrl = canvas.toDataURL('image/png');
+        if (window.electronAPI && window.electronAPI.copyToClipboard) {
+          window.electronAPI.copyToClipboard(dataUrl);
+        }
+      }
+
+      function handleSave() {
+        var dataUrl = canvas.toDataURL('image/png');
+        if (window.electronAPI && window.electronAPI.saveAsPng) {
+          window.electronAPI.saveAsPng(dataUrl);
+        }
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Dark mode
+      // ──────────────────────────────────────────────────────
+      function toggleDarkMode() {
+        darkMode = !darkMode;
+        overlay.classList.toggle('dark', darkMode);
+        redraw();
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Annotations
+      // ──────────────────────────────────────────────────────
+      function addAnnotation(ann) {
+        annotations.push(ann);
+        redraw();
+        if (window.electronAPI && window.electronAPI.annotationAdded) {
+          window.electronAPI.annotationAdded(ann);
+        }
+      }
+
+      function setAnnotations(anns) {
+        annotations = anns.slice();
+        redraw();
+      }
+
+      function getAnnotations() {
+        return annotations.slice();
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Rendering
+      // ──────────────────────────────────────────────────────
+      function redraw() {
+        var w = canvas.width;
+        var h = canvas.height;
+        ctx.clearRect(0, 0, w, h);
+
+        // Draw background image if loaded
+        if (backgroundImg) {
+          ctx.drawImage(backgroundImg, 0, 0, w, h);
+        }
+
+        // Draw annotations
+        drawAnnotations();
+      }
+
+      function drawAnnotations() {
+        var ctx = ctx;
+
+        for (var i = 0; i < annotations.length; i++) {
+          var ann = annotations[i];
+
+          switch (ann.type) {
+            case 'box':
+              ctx.strokeStyle = ann.color;
+              ctx.lineWidth = ann.lineWidth;
+              ctx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+              break;
+
+            case 'arrow':
+              ctx.strokeStyle = ann.color;
+              ctx.lineWidth = ann.lineWidth;
+              ctx.beginPath();
+              ctx.moveTo(ann.from.x, ann.from.y);
+              ctx.lineTo(ann.to.x, ann.to.y);
+              ctx.stroke();
+              // Arrowhead
+              var angle = Math.atan2(ann.to.y - ann.from.y, ann.to.x - ann.from.x);
+              var headLen = 12 + ann.lineWidth * 2;
+              ctx.beginPath();
+              ctx.moveTo(ann.to.x, ann.to.y);
+              ctx.lineTo(
+                ann.to.x - headLen * Math.cos(angle - Math.PI / 6),
+                ann.to.y - headLen * Math.sin(angle - Math.PI / 6)
+              );
+              ctx.moveTo(ann.to.x, ann.to.y);
+              ctx.lineTo(
+                ann.to.x - headLen * Math.cos(angle + Math.PI / 6),
+                ann.to.y - headLen * Math.sin(angle + Math.PI / 6)
+              );
+              ctx.stroke();
+              break;
+
+            case 'blur':
+              ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+              ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
+              ctx.strokeStyle = '#ffffff';
+              ctx.lineWidth = 1;
+              ctx.setLineDash([5, 5]);
+              ctx.strokeRect(ann.x, ann.y, ann.width, ann.height);
+              ctx.setLineDash([]);
+              break;
+
+            case 'text':
+              ctx.fillStyle = ann.color;
+              ctx.font = ann.fontSize + 'px sans-serif';
+              ctx.fillText(ann.text, ann.x, ann.y);
+              break;
+
+            case 'step': {
+              var radius = 12;
+              var cx = ann.x;
+              var cy = ann.y;
+              ctx.fillStyle = '#e53e3e';
+              ctx.beginPath();
+              ctx.arc(cx, cy, radius, 0, Math.PI * 2);
+              ctx.fill();
+              ctx.fillStyle = '#ffffff';
+              ctx.font = 'bold ' + (ann.fontSize - 2) + 'px sans-serif';
+              ctx.textAlign = 'center';
+              ctx.textBaseline = 'middle';
+              ctx.fillText(String(ann.number), cx, cy);
+              ctx.textAlign = 'start';
+              ctx.textBaseline = 'alphabetic';
+              break;
+            }
+          }
+        }
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Background image
+      // ──────────────────────────────────────────────────────
+      function setBackground(base64) {
+        if (!base64) {
+          backgroundImg = null;
+          redraw();
+          return;
+        }
+        var img = new Image();
+        img.onload = function () {
+          backgroundImg = img;
+          redraw();
+        };
+        img.src = base64;
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Public API (exposed on window for IPC bridge)
+      // ──────────────────────────────────────────────────────
+      window.__annotationUI = {
+        setTool: setTool,
+        getTool: function () { return tool; },
+        addAnnotation: addAnnotation,
+        setAnnotations: setAnnotations,
+        getAnnotations: getAnnotations,
+        onUndo: onUndo,
+        onRedo: onRedo,
+        onClear: onClear,
+        handleCopy: handleCopy,
+        handleSave: handleSave,
+        toggleDarkMode: toggleDarkMode,
+        isDarkMode: function () { return darkMode; },
+        setBackground: setBackground,
+        redraw: redraw,
+        getCanvas: function () { return canvas; },
+        getOverlay: function () { return overlay; }
+      };
+
+      // ── Initial render ──
+      redraw();
+    })();
+  </script>
+</body>
+</html>

@@ -32,7 +32,7 @@ Export @sentry/core as a standalone library; replace Electron capture with chrom
 - [x] 3. Add applyBlur method to CoreCanvas using pixel manipulation; run npm test to verify blur output.
 - [x] 4. Implement addStep method for numbered overlays; run npm test to verify step rendering.
 - [x] 5. Implement exportToPng and copyToClipboard functions; run npm test to verify file and buffer output.
-- [ ] 6. Create AnnotationUI module with HTML overlay for tool selection and coordinate mapping; run npm start to verify UI loads.
+- [x] 6. Create AnnotationUI module with HTML overlay for tool selection and coordinate mapping; run npm start to verify UI loads.
 - [ ] 7. Integrate electron screen capture module to feed image to CoreCanvas; run npm start and verify capture works.
 - [ ] 8. Wire UI tools to CoreCanvas methods; run npm start and verify drawing on captured screen.
 - [ ] 9. Add keyboard shortcuts (Ctrl+C, Ctrl+S, Esc); run npm start and verify shortcuts function.
