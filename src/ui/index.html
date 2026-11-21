@@ -72,8 +72,17 @@
       color: #16a34a;
     }
 
+    .sa-action.sa-capture {
+      background: rgba(59, 130, 246, 0.1);
+      color: #2563eb;
+    }
+
     .sa-action.sa-export:hover {
       background: rgba(34, 197, 94, 0.2);
+    }
+
+    .sa-action.sa-capture:hover {
+      background: rgba(59, 130, 246, 0.2);
     }
 
     .sa-canvas-container {
@@ -151,6 +160,13 @@
 <body>
   <div class="sa-overlay" id="sa-overlay">
     <div class="sa-toolbar" id="sa-toolbar">
+      <!-- Capture -->
+      <button class="sa-action sa-capture" id="sa-capture" title="Capture Screen">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>
+        </svg>
+      </button>
+      <div class="sa-separator"></div>
       <!-- Tools -->
       <button class="sa-tool active" data-tool="select" title="Select (V)">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -263,6 +279,7 @@
       });
 
       // ── Action buttons ─────────────────────────────────────
+      document.getElementById('sa-capture').addEventListener('click', function () { captureScreen(); });
       document.getElementById('sa-undo').addEventListener('click', function () { onUndo(); });
       document.getElementById('sa-redo').addEventListener('click', function () { onRedo(); });
       document.getElementById('sa-clear').addEventListener('click', function () { onClear(); });
@@ -477,6 +494,34 @@
       function toggleDarkMode() {
         darkMode = !darkMode;
         overlay.classList.toggle('dark', darkMode);
+        redraw();
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Screen capture
+      // ──────────────────────────────────────────────────────
+      function captureScreen() {
+        if (window.electronAPI && window.electronAPI.captureScreen) {
+          window.electronAPI.captureScreen(function (result) {
+            if (result && result.success && result.png) {
+              initCanvas(result.width, result.height, result.png);
+            } else {
+              alert('Failed to capture screen: ' + (result && result.error ? result.error : 'Unknown error'));
+            }
+          });
+        }
+      }
+
+      // ──────────────────────────────────────────────────────
+      // Canvas initialization
+      // ──────────────────────────────────────────────────────
+      function initCanvas(width, height, base64Png) {
+        canvas.width = width;
+        canvas.height = height;
+        resizeCanvas();
+        if (base64Png) {
+          setBackground(base64Png);
+        }
         redraw();
       }
 

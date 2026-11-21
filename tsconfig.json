@@ -16,6 +16,6 @@
     "moduleResolution": "node",
     "types": ["node"]
   },
-  "include": ["src/core/**/*.ts", "src/main.ts"],
+  "include": ["src/core/**/*.ts", "src/main.ts", "src/preload.ts"],
   "exclude": ["node_modules", "dist", "test", "src/ui"]
 }

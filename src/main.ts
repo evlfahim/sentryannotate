@@ -5,9 +5,10 @@
  * IPC handlers that connect the renderer's UI to the CoreCanvas core.
  */
 
-import { app, BrowserWindow, screen, clipboard, ipcMain } from 'electron';
+import { app, BrowserWindow, screen, clipboard, ipcMain, desktopCapturer } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import sharp from 'sharp';
 import { CoreCanvas } from './core/CoreCanvas';
 
 // Disable sandbox when running as root (CI/headless environments)
@@ -31,6 +32,7 @@ function createWindow(): void {
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
+      preload: path.join(__dirname, 'preload.js'),
     },
   });
 
@@ -117,21 +119,108 @@ ipcMain.handle('core-exportToPng', async () => {
   return btoa(binary);
 });
 
-ipcMain.handle('core-copyToClipboard', async () => {
+ipcMain.handle('core-copyToClipboard', async (_event, dataUrl?: string) => {
   if (!coreCanvas) return;
-  await coreCanvas.copyToClipboard();
-  const buf = coreCanvas.getClipboardBuffer();
-  if (buf) {
-    clipboard.writeBuffer('png', buf);
+
+  // If a dataUrl is provided, decode it and write to clipboard
+  if (dataUrl) {
+    const base64 = dataUrl.split(',')[1];
+    if (base64) {
+      const buffer = Buffer.from(base64, 'base64');
+      clipboard.writeBuffer('png', buffer);
+    }
+  } else {
+    // Otherwise render and copy from core canvas
+    await coreCanvas.copyToClipboard();
+    const buf = coreCanvas.getClipboardBuffer();
+    if (buf) {
+      clipboard.writeBuffer('png', buf);
+    }
   }
 });
 
-ipcMain.handle('core-saveAsPng', (_event, filename: string) => {
+ipcMain.handle('core-saveAsPng', async (_event, dataUrl?: string) => {
   if (!coreCanvas) return false;
-  return coreCanvas.render().then((buffer) => {
-    fs.writeFileSync(filename, buffer);
-    return true;
-  });
+
+  // If a dataUrl is provided, save it directly
+  if (dataUrl) {
+    const base64 = dataUrl.split(',')[1];
+    if (base64) {
+      const buffer = Buffer.from(base64, 'base64');
+      const tempDir = require('os').tmpdir();
+      const filename = path.join(tempDir, 'sentryannotate-' + Date.now() + '.png');
+      fs.writeFileSync(filename, buffer);
+      return filename;
+    }
+  }
+
+  // Otherwise render and save from core canvas
+  const buffer = await coreCanvas.render();
+  const tempDir = require('os').tmpdir();
+  const filename = path.join(tempDir, 'sentryannotate-' + Date.now() + '.png');
+  fs.writeFileSync(filename, buffer);
+  return filename;
+});
+
+ipcMain.handle('core-annotationAdded', (_event, ann: any) => {
+  // Sync annotation to core canvas
+  if (!coreCanvas) return;
+  switch (ann.type) {
+    case 'box':
+      coreCanvas.drawBox(ann.x, ann.y, ann.width, ann.height, ann.color, ann.lineWidth);
+      break;
+    case 'arrow':
+      coreCanvas.drawArrow(ann.from, ann.to, ann.color, ann.lineWidth);
+      break;
+    case 'blur':
+      coreCanvas.applyBlur(ann.x, ann.y, ann.width, ann.height, ann.radius);
+      break;
+    case 'text':
+      coreCanvas.drawText(ann.x, ann.y, ann.text, ann.color, ann.fontSize);
+      break;
+    case 'step':
+      coreCanvas.addStep(ann.x, ann.y, ann.number, ann.color, ann.fontSize);
+      break;
+  }
+});
+
+// ── Screen Capture ──────────────────────────────────────────
+
+/**
+ * Captures the screen using Electron's desktopCapturer API.
+ * Returns a PNG buffer of the primary display.
+ */
+ipcMain.handle('capture-screen', async () => {
+  try {
+    const sources = await desktopCapturer.getSources({
+      types: ['screen', 'window'],
+      thumbnailSize: { width: 3840, height: 2160 },
+    });
+
+    if (sources.length === 0) {
+      return { error: 'No screen sources found' };
+    }
+
+    // Use the first screen source
+    const screenSource = sources.find(
+      (s: any) => s.id.startsWith('screen'),
+    ) || sources[0];
+
+    // The thumbnail is a NativeImage — convert to PNG buffer
+    const pngBuffer = screenSource.thumbnail.toPNG();
+
+    // Get actual dimensions
+    const metadata = await sharp(pngBuffer).metadata();
+
+    return {
+      success: true,
+      width: metadata.width || 0,
+      height: metadata.height || 0,
+      png: pngBuffer.toString('base64'),
+    };
+  } catch (err) {
+    return { error: (err as Error).message };
+  }
 });
 
 app.whenReady().then(createWindow).catch(console.error);
