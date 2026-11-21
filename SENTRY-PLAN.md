@@ -35,7 +35,7 @@ Export @sentry/core as a standalone library; replace Electron capture with chrom
 - [x] 6. Create AnnotationUI module with HTML overlay for tool selection and coordinate mapping; run npm start to verify UI loads.
 - [x] 7. Integrate electron screen capture module to feed image to CoreCanvas; run npm start and verify capture works.
 - [x] 8. Wire UI tools to CoreCanvas methods; run npm start and verify drawing on captured screen.
-- [ ] 9. Add keyboard shortcuts (Ctrl+C, Ctrl+S, Esc); run npm start and verify shortcuts function.
+- [x] 9. Add keyboard shortcuts (Ctrl+C, Ctrl+S, Esc); run npm start and verify shortcuts function.
 - [ ] 10. Refactor codebase to separate @sentry/core from @sentry/ui; run npm test to ensure imports work.
 - [ ] 11. Create plugin-adapter.ts demonstrating extension usage pattern; run npm run lint to check code quality.
 - [ ] 12. Implement undo/redo stack in CoreCanvas; run npm test to verify state management.
