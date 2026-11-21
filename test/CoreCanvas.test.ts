@@ -10,9 +10,15 @@ import { CoreCanvas } from '../src/core/CoreCanvas';
 import type { Box, Arrow, BlurRegion, TextAnnotation, StepAnnotation } from '../src/core/CoreCanvas';
 
 // Helper: create a small test image buffer (as PNG)
-function createTestImage(width = 200, height = 150): Buffer {
-  return sharp({
-    create: { width, height, channels: 3, background: { r: 128, g: 64, b: 255 } },
+async function createTestImage(width = 200, height = 150): Promise<Buffer> {
+  const rawPixels = Buffer.alloc(width * height * 3, 0);
+  for (let i = 0; i < rawPixels.length; i += 3) {
+    rawPixels[i] = 128;     // R
+    rawPixels[i + 1] = 64;  // G
+    rawPixels[i + 2] = 255; // B
+  }
+  return sharp(rawPixels, {
+    raw: { width, height, channels: 3 },
   }).png().toBuffer();
 }
 
@@ -30,7 +36,7 @@ describe('CoreCanvas', () => {
     });
 
     it('creates a canvas with a background image', async () => {
-      const img = createTestImage(100, 80);
+      const img = await createTestImage(100, 80);
       const c = new CoreCanvas(100, 80, img);
       expect(c.getWidth()).toBe(100);
       expect(c.getHeight()).toBe(80);
@@ -159,7 +165,7 @@ describe('CoreCanvas', () => {
     });
 
     it('renders with a background image', async () => {
-      const img = createTestImage(200, 150);
+      const img = await createTestImage(200, 150);
       const c = new CoreCanvas(200, 150, img);
       c.drawBox(10, 10, 50, 50);
       const buffer = await c.render();
@@ -303,7 +309,7 @@ describe('CoreCanvas', () => {
 
   describe('fromPng', () => {
     it('creates a canvas from a PNG buffer', async () => {
-      const img = createTestImage(100, 80);
+      const img = await createTestImage(100, 80);
       const c = CoreCanvas.fromPng(img);
       expect(c.getWidth()).toBe(0);
       expect(c.getHeight()).toBe(0);

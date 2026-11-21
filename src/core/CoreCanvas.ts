@@ -75,8 +75,8 @@ export type Annotation = Box | Arrow | BlurRegion | TextAnnotation | StepAnnotat
 export interface CanvasState {
   width: number;
   height: number;
-  /** Base64-encoded PNG of the background image (null if none). */
-  background: string | null;
+  /** Raw PNG buffer of the background image (null if none). */
+  background: Buffer | null;
   annotations: Annotation[];
 }
 
@@ -93,9 +93,7 @@ export class CoreCanvas {
     this.state = {
       width,
       height,
-      background: backgroundPng
-        ? backgroundPng.toString('base64')
-        : null,
+      background: backgroundPng ? Buffer.from(backgroundPng) : null,
       annotations: [],
     };
   }
@@ -155,9 +153,8 @@ export class CoreCanvas {
     let compositeImage: Buffer;
 
     if (background) {
-      // Decode the base64 PNG and get the buffer
-      compositeImage = await sharp(Buffer.from(background, 'base64'))
-        .toBuffer();
+      // Use the stored PNG buffer directly
+      compositeImage = await sharp(background).toBuffer();
     } else {
       // Create a blank RGBA image using Sharp's raw input format
       const rawPixels = Buffer.alloc(width * height * 4, 0);

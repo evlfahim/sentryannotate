@@ -27,7 +27,7 @@ TypeScript, Node.js, Electron, HTML5 Canvas, Sharp, Clipboardy
 Export @sentry/core as a standalone library; replace Electron capture with chrome.tabs.captureVisibleTab and clipboard with navigator.clipboard in the adapter layer to wrap as a browser extension.
 
 ## Steps
-- [ ] 1. Initialize project structure with TypeScript, Electron, and Canvas dependencies; run npm test to verify build pipeline.
+- [x] 1. Initialize project structure with TypeScript, Electron, and Canvas dependencies; run npm test to verify build pipeline.
 - [ ] 2. Implement CoreCanvas class with methods for drawBox, drawArrow, and render; run npm test to verify vector operations.
 - [ ] 3. Add applyBlur method to CoreCanvas using pixel manipulation; run npm test to verify blur output.
 - [ ] 4. Implement addStep method for numbered overlays; run npm test to verify step rendering.
