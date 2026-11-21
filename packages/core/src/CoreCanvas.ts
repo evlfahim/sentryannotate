@@ -11,10 +11,11 @@
  * All drawing operations are stored as immutable commands so that
  * undo/redo is a simple push/pop on the command stack.
  *
- * Uses Sharp for image manipulation (no canvas package needed).
+ * Uses Sharp for image manipulation (no canvas package needed); rendering
+ * goes through an OffscreenSurface so heavy pixel work stays off the main thread.
  */
 
-import sharp from 'sharp';
+import { OffscreenSurface } from './OffscreenSurface';
 
 // ──────────────────────────────────────────────────────────────
 // Types
@@ -88,6 +89,12 @@ export class CoreCanvas {
   private state: CanvasState;
   private undoStack: CanvasState[] = [];
   private redoStack: CanvasState[] = [];
+  private baseSurfaceCache: {
+    background: Buffer | null;
+    width: number;
+    height: number;
+    surface: OffscreenSurface;
+  } | null = null;
 
   constructor(width: number, height: number, backgroundPng?: Buffer) {
     this.state = {
@@ -145,60 +152,41 @@ export class CoreCanvas {
     this.redoStack = [];
   }
 
-  /** Render the full canvas (background + annotations) and return the PNG buffer. */
+  /**
+   * Render the full canvas (background + annotations) and return the PNG buffer.
+   *
+   * Rendering happens on an OffscreenSurface: the background is decoded once
+   * (and cached between renders), blur regions are processed by Sharp off the
+   * main thread, and the result is encoded to PNG a single time with every
+   * vector overlay composited in one pass.
+   */
   async render(): Promise<Buffer> {
-    const { width, height, background, annotations } = this.state;
+    const { annotations } = this.state;
 
-    // Start with the background image or a blank canvas
-    let compositeImage: Buffer;
-
-    if (background) {
-      // Use the stored PNG buffer directly
-      compositeImage = await sharp(background).toBuffer();
-    } else {
-      // Create a blank RGBA image using Sharp's raw input format
-      const rawPixels = Buffer.alloc(width * height * 4, 0);
-      compositeImage = await sharp(rawPixels, {
-        raw: { width, height, channels: 4 },
-      }).png().toBuffer();
-    }
+    const surface = (await this.getBaseSurface()).clone();
 
     // Apply blur regions first (behind everything)
+    const blurs = annotations.filter((a): a is BlurRegion => a.type === 'blur');
+    await surface.blurRegions(blurs);
+
+    // Vector overlays, in layer order: boxes, arrows, text, steps
+    const { width, height } = surface;
+    const overlays: string[] = [];
     for (const ann of annotations) {
-      if (ann.type === 'blur') {
-        compositeImage = await this.applyBlurToBuffer(compositeImage, ann);
-      }
+      if (ann.type === 'box') overlays.push(this.boxSvg(ann, width, height));
+    }
+    let arrowIndex = 0;
+    for (const ann of annotations) {
+      if (ann.type === 'arrow') overlays.push(this.arrowSvg(ann, width, height, arrowIndex++));
+    }
+    for (const ann of annotations) {
+      if (ann.type === 'text') overlays.push(this.textSvg(ann, width, height));
+    }
+    for (const ann of annotations) {
+      if (ann.type === 'step') overlays.push(this.stepSvg(ann, width, height));
     }
 
-    // Draw boxes on top
-    for (const ann of annotations) {
-      if (ann.type === 'box') {
-        compositeImage = await this.drawBoxOnBuffer(compositeImage, ann);
-      }
-    }
-
-    // Draw arrows on top
-    for (const ann of annotations) {
-      if (ann.type === 'arrow') {
-        compositeImage = await this.drawArrowOnBuffer(compositeImage, ann);
-      }
-    }
-
-    // Draw text on top
-    for (const ann of annotations) {
-      if (ann.type === 'text') {
-        compositeImage = await this.drawTextOnBuffer(compositeImage, ann);
-      }
-    }
-
-    // Draw steps on top
-    for (const ann of annotations) {
-      if (ann.type === 'step') {
-        compositeImage = await this.drawStepOnBuffer(compositeImage, ann);
-      }
-    }
-
-    return compositeImage;
+    return surface.toPng(overlays);
   }
 
   /** Export the rendered canvas as a PNG ArrayBuffer. */
@@ -284,140 +272,81 @@ export class CoreCanvas {
     this.undoStack.push(copy);
   }
 
-  private async applyBlurToBuffer(
-    image: Buffer,
-    blur: BlurRegion,
-  ): Promise<Buffer> {
-    const { x, y, width, height, radius } = blur;
+  /**
+   * Decoded background (or blank) surface. Decoding a large screenshot is the
+   * most expensive part of a render, so it is cached until the background
+   * or canvas size changes. Callers must clone() before mutating.
+   */
+  private async getBaseSurface(): Promise<OffscreenSurface> {
+    const { width, height, background } = this.state;
+    const cache = this.baseSurfaceCache;
+    if (
+      cache &&
+      cache.background === background &&
+      cache.width === width &&
+      cache.height === height
+    ) {
+      return cache.surface;
+    }
 
-    // Clamp to image bounds
-    const clampedX = Math.max(0, Math.round(x));
-    const clampedY = Math.max(0, Math.round(y));
-    const clampedW = Math.min(this.state.width - clampedX, Math.round(width));
-    const clampedH = Math.min(this.state.height - clampedY, Math.round(height));
+    const surface = background
+      ? await OffscreenSurface.fromImage(background)
+      : OffscreenSurface.blank(width, height);
 
-    if (clampedW <= 0 || clampedH <= 0) return image;
-
-    // Extract the region
-    const region = await sharp(image)
-      .extract({
-        left: clampedX,
-        top: clampedY,
-        width: clampedW,
-        height: clampedH,
-      })
-      .toBuffer();
-
-    // Apply blur using Sharp's built-in blur
-    const blurred = await sharp(region)
-      .blur(radius)
-      .toBuffer();
-
-    // Composite the blurred region back onto the original image
-    return sharp(image)
-      .composite([
-        {
-          input: blurred,
-          left: clampedX,
-          top: clampedY,
-        },
-      ])
-      .toBuffer();
+    this.baseSurfaceCache = { background, width, height, surface };
+    return surface;
   }
 
-  private async drawBoxOnBuffer(
-    image: Buffer,
-    box: Box,
-  ): Promise<Buffer> {
-    // Draw the box using SVG
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${this.state.width}" height="${this.state.height}">
+  private svgOpen(width: number, height: number): string {
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">`;
+  }
+
+  private boxSvg(box: Box, width: number, height: number): string {
+    return `${this.svgOpen(width, height)}
         <rect x="${box.x}" y="${box.y}" width="${box.width}" height="${box.height}"
-              fill="none" stroke="${box.color}" stroke-width="${box.lineWidth}" />
-      </svg>
-    `;
-
-    const overlayBuffer = await sharp(Buffer.from(svg))
-      .resize(this.state.width, this.state.height)
-      .toBuffer();
-
-    return sharp(image)
-      .composite([{ input: overlayBuffer, blend: 'over' }])
-      .toBuffer();
+              fill="none" stroke="${escapeXml(box.color)}" stroke-width="${box.lineWidth}" />
+      </svg>`;
   }
 
-  private async drawArrowOnBuffer(
-    image: Buffer,
-    arrow: Arrow,
-  ): Promise<Buffer> {
-    const { from, to, color, lineWidth } = arrow;
-
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${this.state.width}" height="${this.state.height}">
+  private arrowSvg(arrow: Arrow, width: number, height: number, index: number): string {
+    const { from, to, lineWidth } = arrow;
+    const color = escapeXml(arrow.color);
+    const markerId = `arrowhead-${index}`;
+    return `${this.svgOpen(width, height)}
         <defs>
-          <marker id="arrowhead" markerWidth="10" markerHeight="7"
+          <marker id="${markerId}" markerWidth="10" markerHeight="7"
                   refX="9" refY="3.5" orient="auto">
             <polygon points="0 0, 10 3.5, 0 7" fill="${color}" />
           </marker>
         </defs>
         <line x1="${from.x}" y1="${from.y}" x2="${to.x}" y2="${to.y}"
               stroke="${color}" stroke-width="${lineWidth}"
-              marker-end="url(#arrowhead)" />
-      </svg>
-    `;
-
-    const overlayBuffer = await sharp(Buffer.from(svg))
-      .resize(this.state.width, this.state.height)
-      .toBuffer();
-
-    return sharp(image)
-      .composite([{ input: overlayBuffer, blend: 'over' }])
-      .toBuffer();
+              marker-end="url(#${markerId})" />
+      </svg>`;
   }
 
-  private async drawTextOnBuffer(
-    image: Buffer,
-    text: TextAnnotation,
-  ): Promise<Buffer> {
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${this.state.width}" height="${this.state.height}">
-        <text x="${text.x}" y="${text.y}" fill="${text.color}"
-              font-size="${text.fontSize}" font-family="sans-serif">
-          ${text.text}
-        </text>
-      </svg>
-    `;
-
-    const overlayBuffer = await sharp(Buffer.from(svg))
-      .resize(this.state.width, this.state.height)
-      .toBuffer();
-
-    return sharp(image)
-      .composite([{ input: overlayBuffer, blend: 'over' }])
-      .toBuffer();
+  private textSvg(text: TextAnnotation, width: number, height: number): string {
+    return `${this.svgOpen(width, height)}
+        <text x="${text.x}" y="${text.y}" fill="${escapeXml(text.color)}"
+              font-size="${text.fontSize}" font-family="sans-serif">${escapeXml(text.text)}</text>
+      </svg>`;
   }
 
-  private async drawStepOnBuffer(
-    image: Buffer,
-    step: StepAnnotation,
-  ): Promise<Buffer> {
-    const svg = `
-      <svg xmlns="http://www.w3.org/2000/svg" width="${this.state.width}" height="${this.state.height}">
+  private stepSvg(step: StepAnnotation, width: number, height: number): string {
+    return `${this.svgOpen(width, height)}
         <circle cx="${step.x}" cy="${step.y}" r="12" fill="#e53e3e" />
         <text x="${step.x}" y="${step.y}" fill="#ffffff"
               font-size="${step.fontSize - 2}" font-family="sans-serif"
-              font-weight="bold" text-anchor="middle" dominant-baseline="central">
-          ${step.number}
-        </text>
-      </svg>
-    `;
-
-    const overlayBuffer = await sharp(Buffer.from(svg))
-      .resize(this.state.width, this.state.height)
-      .toBuffer();
-
-    return sharp(image)
-      .composite([{ input: overlayBuffer, blend: 'over' }])
-      .toBuffer();
+              font-weight="bold" text-anchor="middle" dominant-baseline="central">${step.number}</text>
+      </svg>`;
   }
+}
+
+function escapeXml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
 }

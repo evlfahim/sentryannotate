@@ -562,6 +562,59 @@
         drawAnnotations();
       }
 
+      // ──────────────────────────────────────────────────────
+      // Offscreen blur cache
+      // Each blur region is rendered once into its own OffscreenCanvas
+      // and reused on every redraw, so dragging/drawing other tools never
+      // re-runs the blur filter on the visible canvas.
+      // ──────────────────────────────────────────────────────
+      var blurCache = new WeakMap();
+
+      function createSurface(w, h) {
+        if (typeof OffscreenCanvas !== 'undefined') {
+          return new OffscreenCanvas(w, h);
+        }
+        var el = document.createElement('canvas');
+        el.width = w;
+        el.height = h;
+        return el;
+      }
+
+      function getBlurPatch(ann) {
+        if (!backgroundImg) return null;
+        var w = Math.round(ann.width);
+        var h = Math.round(ann.height);
+        if (w <= 0 || h <= 0) return null;
+
+        var cached = blurCache.get(ann);
+        if (cached && cached.bg === backgroundImg &&
+            cached.cw === canvas.width && cached.ch === canvas.height) {
+          return cached.patch;
+        }
+
+        // Map canvas coordinates back into background image pixels
+        var sx = (backgroundImg.naturalWidth || backgroundImg.width) / canvas.width;
+        var sy = (backgroundImg.naturalHeight || backgroundImg.height) / canvas.height;
+
+        var patch = createSurface(w, h);
+        var pctx = patch.getContext('2d');
+        if (!pctx) return null;
+        pctx.filter = 'blur(' + (ann.radius || 8) + 'px)';
+        // Draw a slightly larger source area so edges blur with real
+        // neighbouring pixels instead of fading to transparent.
+        var pad = (ann.radius || 8) * 2;
+        pctx.drawImage(
+          backgroundImg,
+          (ann.x - pad) * sx, (ann.y - pad) * sy,
+          (w + pad * 2) * sx, (h + pad * 2) * sy,
+          -pad, -pad, w + pad * 2, h + pad * 2
+        );
+        pctx.filter = 'none';
+
+        blurCache.set(ann, { bg: backgroundImg, cw: canvas.width, ch: canvas.height, patch: patch });
+        return patch;
+      }
+
       function drawAnnotations() {
 
         for (var i = 0; i < annotations.length; i++) {
@@ -598,15 +651,21 @@
               ctx.stroke();
               break;
 
-            case 'blur':
-              ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
-              ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
+            case 'blur': {
+              var patch = getBlurPatch(ann);
+              if (patch) {
+                ctx.drawImage(patch, ann.x, ann.y);
+              } else {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fillRect(ann.x, ann.y, ann.width, ann.height);
+              }
               ctx.strokeStyle = '#ffffff';
               ctx.lineWidth = 1;
               ctx.setLineDash([5, 5]);
               ctx.strokeRect(ann.x, ann.y, ann.width, ann.height);
               ctx.setLineDash([]);
               break;
+            }
 
             case 'text':
               ctx.fillStyle = ann.color;

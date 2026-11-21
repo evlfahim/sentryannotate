@@ -6,6 +6,8 @@
  */
 
 export { CoreCanvas } from './CoreCanvas';
+export { OffscreenSurface } from './OffscreenSurface';
+export type { PixelRect } from './OffscreenSurface';
 export type {
   Point,
   Box,
