@@ -40,6 +40,6 @@ Export @sentry/core as a standalone library; replace Electron capture with chrom
 - [x] 11. Create plugin-adapter.ts demonstrating extension usage pattern; run npm run lint to check code quality.
 - [x] 12. Implement undo/redo stack in CoreCanvas; run npm test to verify state management.
 - [x] 13. Optimize blur performance with offscreen canvas; run npm test to verify no main thread blocking.
-- [ ] 14. Add dark mode toggle to AnnotationUI; run npm start and verify theme switch.
+- [x] 14. Add dark mode toggle to AnnotationUI; run npm start and verify theme switch.
 - [ ] 15. Run full integration test suite; run npm test and verify all tests pass.
 - [ ] 16. Write README.md with setup instructions and plugin conversion guide; run cat README.md to verify content.
