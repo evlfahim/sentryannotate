@@ -28,7 +28,7 @@ Export @sentry/core as a standalone library; replace Electron capture with chrom
 
 ## Steps
 - [x] 1. Initialize project structure with TypeScript, Electron, and Canvas dependencies; run npm test to verify build pipeline.
-- [ ] 2. Implement CoreCanvas class with methods for drawBox, drawArrow, and render; run npm test to verify vector operations.
+- [x] 2. Implement CoreCanvas class with methods for drawBox, drawArrow, and render; run npm test to verify vector operations.
 - [ ] 3. Add applyBlur method to CoreCanvas using pixel manipulation; run npm test to verify blur output.
 - [ ] 4. Implement addStep method for numbered overlays; run npm test to verify step rendering.
 - [ ] 5. Implement exportToPng and copyToClipboard functions; run npm test to verify file and buffer output.
