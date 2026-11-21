@@ -8,7 +8,7 @@
  * Runs in the Electron renderer process (browser context).
  */
 
-import type { Annotation, Point } from '../core/CoreCanvas';
+import type { Annotation, Point } from '@sentry/core';
 
 export type ToolType = 'select' | 'box' | 'arrow' | 'blur' | 'text' | 'step' | 'pan';
 

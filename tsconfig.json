@@ -14,8 +14,13 @@
     "declarationMap": true,
     "sourceMap": true,
     "moduleResolution": "node",
-    "types": ["node"]
+    "types": ["node"],
+    "baseUrl": ".",
+    "paths": {
+      "@sentry/core": ["packages/core/dist"],
+      "@sentry/ui": ["packages/ui/dist"]
+    }
   },
-  "include": ["src/core/**/*.ts", "src/main.ts", "src/preload.ts"],
-  "exclude": ["node_modules", "dist", "test", "src/ui"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["node_modules", "dist", "test", "packages"]
 }

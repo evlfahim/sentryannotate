@@ -9,7 +9,7 @@ import { app, BrowserWindow, screen, clipboard, ipcMain, desktopCapturer } from 
 import * as path from 'path';
 import * as fs from 'fs';
 import sharp from 'sharp';
-import { CoreCanvas } from './core/CoreCanvas';
+import { CoreCanvas } from '@sentry/core';
 
 // Disable sandbox when running as root (CI/headless environments)
 if (process.getuid && process.getuid() === 0) {

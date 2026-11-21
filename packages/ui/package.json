@@ -1,0 +1,17 @@
+{
+  "name": "@sentry/ui",
+  "version": "1.0.0",
+  "description": "UI overlay module for SentryAnnotate",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@sentry/core": "1.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  },
+  "license": "MIT"
+}

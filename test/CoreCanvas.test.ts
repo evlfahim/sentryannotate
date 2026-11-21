@@ -6,8 +6,8 @@
 
 import { describe, it, expect, beforeEach } from 'vitest';
 import sharp from 'sharp';
-import { CoreCanvas } from '../src/core/CoreCanvas';
-import type { Box, Arrow, BlurRegion, TextAnnotation, StepAnnotation } from '../src/core/CoreCanvas';
+import { CoreCanvas } from '@sentry/core';
+import type { Box, Arrow, BlurRegion, TextAnnotation, StepAnnotation } from '@sentry/core';
 
 // Helper: create a small test image buffer (as PNG)
 async function createTestImage(width = 200, height = 150): Promise<Buffer> {
